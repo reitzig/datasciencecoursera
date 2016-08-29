@@ -1,0 +1,233 @@
+# Most Dangerous Weather Phenomena in the USA
+
+In this analysis, we will investigate which weather phenomena are
+
+ * the most harmful to public health and which have
+ * the greatest impact on the economy
+ 
+across the whole of the United States of America.
+We base our analysis on data from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database.
+
+We investigate the total direct economic damage (in USD), the number of fatalities, and the number of injuries.
+We order event types by the respective effect sizes, first summarized over the whole time of measurement but
+also over a shorter timeframe.
+
+
+
+## Data Processing
+
+First we load the data set.
+Documentation can be found 
+  [here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf);
+there is also a much shorter
+  [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf).
+
+```{r loading data, cache=T}
+if ( !file.exists("data.csv.bz2") ) {
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "data.csv.bz2")
+}
+rawdata <- read.csv("data.csv.bz2")
+```
+
+For this analysis, we will focus on
+
+ * (begin) date,
+ * the number of fatalities,
+ * the number of injuries, and
+ * damages to property and crops.
+ 
+In particular, we will ignore other related costs and delayed damage, as these data are only available in narrative form.
+
+```{r selecting data}
+library("dplyr")
+data <- select(rawdata, REFNUM, EVTYPE, BGN_DATE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP) 
+```
+
+Now we have some cleaning up to do.
+
+ 1. Damages are given in different units which are provided in the `_EXP` variables.
+    We normalize the `_DMG` variables to dollars.
+    
+    We find the following values in `_EXP`:
+    
+    ```{r}
+    library("knitr")
+    summary(data$PROPDMGEXP)
+    summary(data$CROPDMGEXP)
+    ```
+    
+    We will interpret `k` and `K` as thousands, `m` and `M` for millions, and `B` as billions.
+    If no value is given, we will interpret this as the amount given in plain dollars.
+    Since this accounts for the overwhelming majority of observations we will ignore the other
+    variants and put `NA`.
+    
+    Since we are only interested in overall damages, we just add the two different damage types.
+    
+    ```{r calc dmg}
+    exponent <- function(e) {
+      if ( e == "" ) {
+        return(1)
+      }
+      else if ( e == "k" | e == "K" ) {
+        return(1000)
+      }
+      else if ( e == "m" | e == "M" ) {
+        return(1000000)
+      }
+      else if ( e == "b" | e == "B" ) {
+        return(1000000000)
+      }
+      else {
+        return(NA)
+      }
+    }
+    
+    data <- data %>% 
+            rowwise() %>% # Need to go into rowwise mode because exponent takes only scalars
+            mutate(DMG = PROPDMG * exponent(PROPDMGEXP) + CROPDMG * exponent(CROPDMGEXP)) %>%
+            select(REFNUM, EVTYPE, BGN_DATE, FATALITIES, INJURIES, DMG) %>%
+            ungroup() # remove effect of rowwise()
+    ```
+    
+ 2. We extract years from the (begin) dates; we do not need higher resolution.
+ 
+    ```{r extract year}
+    data <- data %>%
+            mutate(YEAR = strftime(strptime(BGN_DATE, format = "%m/%d/%Y %H:%M:%S"), format = "%Y")) %>%
+            select(-BGN_DATE)
+    ```
+    
+Now we have the data in a form we can work with.
+
+## Exploratory Analysis
+
+In order to get a feeling of how the different effects distribute over the event types, we plot some quick histograms.
+
+```{r summarize types}
+evt_data <- data %>%
+            group_by(EVTYPE) %>%
+            summarize_each(funs(sum), FATALITIES, INJURIES, DMG)
+
+summary(evt_data$FATALITIES)
+summary(evt_data$INJURIES)
+summary(evt_data$DMG)
+
+library("ggplot2")
+require(gridExtra)
+
+hist1 <- ggplot(evt_data, aes(FATALITIES)) + geom_histogram()
+hist2 <- ggplot(evt_data, aes(INJURIES)) + geom_histogram()
+hist3 <- ggplot(evt_data, aes(DMG)) + geom_histogram()
+grid.arrange(hist1, hist2, hist3, ncol=3)
+```
+
+It does indeed seem to be the case that very few event types dominate each effect.
+We will therefore restrict ourselves to reporting the top 10 for each effect.
+
+## Results
+
+```{r sorting}
+evt_by_fatal <- evt_data %>% 
+                select(EVTYPE, FATALITIES) %>%
+                mutate(FATALITIES_RATIO = FATALITIES / sum(FATALITIES)) %>%
+                arrange(desc(FATALITIES))
+evt_by_injur <- evt_data %>% 
+                select(EVTYPE, INJURIES) %>%
+                mutate(INJURIES_RATIO = INJURIES / sum(INJURIES)) %>%
+                arrange(desc(INJURIES))
+evt_by_damag <- evt_data %>% 
+                select(EVTYPE, DMG) %>%
+                filter(!is.na(DMG)) %>%
+                mutate(DMG_RATIO = DMG / sum(DMG)) %>%
+                arrange(desc(DMG))
+```
+
+Let us inspect the Top 10 for each effect. These lists directly tell us which phenomena have had the greatest total effect.
+We note that, indeed, relatively few event types account for most of the damages done.
+
+### Fatalities
+
+```{r top fatalities}
+kable(head(evt_by_fatal, 10), digits=2)
+```
+
+### Injuries
+
+```{r}
+kable(head(evt_by_injur, 10), digits=2)
+```
+
+### Economic Damage
+
+```{r}
+kable(head(evt_by_damag, 10), digits=2)
+```
+
+### Development over time
+
+However, if we inspect the effects over time, we note that things may have been changing.
+
+```{r final plots}
+top_fatal_data <- data %>%
+                  filter(EVTYPE %in% head(evt_by_fatal, 6)$'EVTYPE') %>%
+                  group_by(EVTYPE, YEAR) %>%
+                  summarize_each(funs(sum), FATALITIES)
+top_injur_data <- data %>%
+                 filter(EVTYPE %in% head(evt_by_injur, 6)$'EVTYPE') %>%
+                 group_by(EVTYPE, YEAR) %>%
+                 summarize_each(funs(sum), INJURIES)
+top_damag_data <- data %>%
+                 filter(EVTYPE %in% head(evt_by_damag, 6)$'EVTYPE') %>%
+                group_by(EVTYPE, YEAR) %>%
+                 summarize_each(funs(sum), DMG)
+
+plot1 <- ggplot(data = top_fatal_data) +
+  geom_point(aes(YEAR, FATALITIES, group = 1, color = EVTYPE, shape = EVTYPE))
+plot2 <- ggplot(data = top_injur_data) +
+  geom_point(aes(YEAR, INJURIES, group = 1, color = EVTYPE, shape = EVTYPE))
+plot3 <- ggplot(data = top_damag_data) +
+  geom_point(aes(YEAR, log(DMG), group = 1, color = EVTYPE, shape = EVTYPE))
+
+# Equalize widths
+g1 <- ggplotGrob(plot1)
+g2 <- ggplotGrob(plot2)
+g3 <- ggplotGrob(plot3)
+g2$widths <- g1$widths
+g3$widths <- g1$widths
+
+grid.arrange(g1, g2, g3, nrow=3)
+```
+
+We make some observations.
+
+ 1. Economic damages seem to be spread out quite evenly. The top list above seems to be meaningful.
+ 
+ 2. For fatalities and injuries, only Tornado and TSTM Wind events were recorded before the 1990s (among the top 6). 
+    Therefore, total sums over the whole date range are likely to misrepresent the danger of the respective
+    types of events.
+    
+    Indeed, if we restrict ourselves to data since 1990, we obtain this:
+    
+    ```{r recent years}
+    recent_data <- data %>%
+                   filter(as.integer(YEAR) >= 1990) %>%
+                   group_by(EVTYPE) %>%
+                   summarize_each(funs(sum), FATALITIES, INJURIES, DMG)
+    
+    recent_by_fatal <- recent_data %>% 
+                select(EVTYPE, FATALITIES) %>%
+                mutate(FATALITIES_RATIO = FATALITIES / sum(FATALITIES)) %>%
+                arrange(desc(FATALITIES))
+    recent_by_injur <- recent_data %>% 
+                select(EVTYPE, INJURIES) %>%
+                mutate(INJURIES_RATIO = INJURIES / sum(INJURIES)) %>%
+                arrange(desc(INJURIES))
+    
+    kable(head(recent_by_fatal, 10), digits=2)
+    kable(head(recent_by_injur, 10), digits=2)
+    ```
+    
+    While tornadoes still account for most injuries, fatalities are caused by a more diverse set of phenomena.
+    
+It is noteworthy that those events that cause the most damage to life and health do not cause the most economic damage, 
+and vice versa.
