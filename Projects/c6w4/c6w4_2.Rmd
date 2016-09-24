@@ -1,0 +1,60 @@
+---
+title: "Data Science Specialization Course Project 6 -- Part 2"
+author: "Raphael Reitzig"
+date: "September 24, 2016"
+output: pdf_document
+---
+
+## Part 2: Tooth Growth
+
+First, we need the data, of course.
+
+```{r loadtoothdata}
+data("ToothGrowth")
+str(ToothGrowth)
+```
+
+We have 60 observations of lengths of certain cells of guinea pigs that were given different dosages of vitamin C as either orange juice (`OJ`) or in pure form (`VC`).
+
+```{r toothplot, out.width="0.5\\textwidth"}
+library(ggplot2)
+ggplot(ToothGrowth, aes(x = factor(dose), y = len, fill = supp)) +
+  geom_boxplot()
+```
+
+We want to show that higher dosage of vitamin C leads to longer cells for both forms of supplement.
+To this end, we assume that the individual observations are i.i.d. normal (within each supplement-dosage group)
+and that there are no confounding factors;
+we can therefore apply the (grouped, unpaired, one-sided) t-tests. 
+
+Our null-hypothesis is that the respective means are equal;
+the alternative is that higher dosage results in greater cell length.
+We seek significance of alpha = 0.05.
+
+We compute p-values for the four relevant combinations.
+
+```{r tests}
+oj1 <- t.test(ToothGrowth[ToothGrowth$supp == "OJ" & ToothGrowth$dose == 1, "len"],
+              ToothGrowth[ToothGrowth$supp == "OJ" & ToothGrowth$dose == 0.5, "len"],
+              alternative = "greater")
+oj2 <- t.test(ToothGrowth[ToothGrowth$supp == "OJ" & ToothGrowth$dose == 2, "len"],
+              ToothGrowth[ToothGrowth$supp == "OJ" & ToothGrowth$dose == 1, "len"],
+              alternative = "greater")
+vc1 <- t.test(ToothGrowth[ToothGrowth$supp == "VC" & ToothGrowth$dose == 1, "len"],
+              ToothGrowth[ToothGrowth$supp == "VC" & ToothGrowth$dose == 0.5, "len"],
+              alternative = "greater")
+vc2 <- t.test(ToothGrowth[ToothGrowth$supp == "VC" & ToothGrowth$dose == 2, "len"],
+              ToothGrowth[ToothGrowth$supp == "VC" & ToothGrowth$dose == 1, "len"],
+              alternative = "greater")
+
+results <- matrix(c(oj1$p.value, vc1$p.value, oj2$p.value, vc2$p.value), ncol=2)
+rownames(results) <- c("Orange Juice", "Ascorbic Acid")
+colnames(results) <- c("1 vs 0.5", "2 vs 1")
+library(knitr)
+kable(results)
+```
+
+We see that all p-values are less than alpha, that is we can reject the null hypothesis in all cases.
+
+We conclude that, as far as this data goes, more vitamin C seems to cause larger cells in the present range 
+of dosages and for the two forms of supplement we have seen here.

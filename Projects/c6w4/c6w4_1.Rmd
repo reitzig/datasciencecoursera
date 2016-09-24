@@ -1,0 +1,64 @@
+---
+title: "Data Science Specialization Course Project 6 -- Part 1"
+author: "Raphael Reitzig"
+date: "September 24, 2016"
+output: pdf_document
+---
+
+## Part 1: A Simulation Exercise
+
+We will need a bunch of exponentially random numbers.
+
+```{r data}
+lambda <- 0.2
+expdata <- matrix(rexp(40000, lambda), ncol=40)
+```
+
+Now we will compute the set of sample means and variances we are interested in:
+
+```{r stats}
+means <- apply(expdata, 1, mean)
+variances <- apply(expdata, 1, var)
+```
+
+### Distribution of the Sample Mean
+
+Let us compare the sample means with the theoretical mean `r 1/lambda`.
+
+```{r meanplot, out.width="0.6\\textwidth"}
+library(ggplot2)
+ggplot(data.frame(means=means), aes(means)) +
+  geom_histogram(bins = 30) +
+  geom_vline(xintercept = 1/lambda, color="dark red")
+```
+
+We see that we get a quite normal-looking distribution around the true mean.
+With a standard deviation of `r sd(means)` it is not the most concentrated, though.
+
+
+### Distribution of the Sample Variance
+
+Let us compare the sample variances with the theoretical variance `r 1/(lambda*lambda)`.
+
+```{r varplot, out.width="0.6\\textwidth"}
+ggplot(data.frame(variances=variances), aes(variances)) +
+  geom_histogram(bins = 30) +
+  geom_vline(xintercept = 1/(lambda*lambda), color="dark red")
+```
+
+We see that we get a non-normal-looking distribution around the true variance.
+
+
+### Comparison With Normal Distribution
+
+We inspect how close the distribution of the mean is to normal. We superimpose the normal density using sample mean and standard deviation as parameters -- our best estimate for the distribution of the mean, if it *is* indeed normal -- onto the (smoothed and normalized) histogram.
+
+```{r cmpmeanplot, out.width="0.6\\textwidth"}
+estimated_normal <- function(x) { dnorm(x, mean = mean(means), sd = sd(means)) }
+
+ggplot(data.frame(means=means), aes(means)) +
+  geom_density(color="blue") + # This is a smoothed, normalized version of the histogram
+  stat_function(fun = estimated_normal, color="dark red") # estimated distribution
+```
+
+The means seem indeed to be roughly normally distributed.
